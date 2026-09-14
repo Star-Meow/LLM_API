@@ -1,0 +1,94 @@
+services:
+  LLM_API:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    image: llm_api:latest
+    container_name: LLM_API
+
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    working_dir: /app/llama.cpp
+
+    volumes:
+      - llm_models:/models
+
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+
+        MODEL="/models/Qwen3.8-27B-GSQ-RCO-IQ2_XS.gguf"
+
+        echo "========================================"
+        echo " Hugging Face"
+        echo "========================================"
+
+        if [ ! -f "$$MODEL" ]; then
+          echo "Model not found."
+          echo "Downloading..."
+
+          hf download \
+            ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF \
+            Qwen3.8-27B-GSQ-RCO-IQ2_XS.gguf \
+            --local-dir /models
+
+          echo "Download completed."
+        else
+          echo "Model already exists."
+          echo "Skipping download."
+        fi
+
+        echo "========================================"
+        echo " Checking Model"
+        echo "========================================"
+
+        if [ ! -f "$$MODEL" ]; then
+          echo "ERROR: Model file does not exist:"
+          echo "$$MODEL"
+          exit 1
+        fi
+
+        ls -lh "$$MODEL"
+
+        echo "========================================"
+        echo " Starting llama-server"
+        echo "========================================"
+
+        exec ./build/bin/llama-server \
+          -fit off \
+          -m "$$MODEL" \
+          --host 0.0.0.0 \
+          --port 8080 \
+          -ngl 99 \
+          -c 65536 \
+          -fa on \
+          --jinja \
+          --reasoning on \
+          --reasoning-budget 2048 \
+          --cache-type-k q8_0 \
+          --cache-type-v q8_0 \
+          --cache-prompt \
+          --parallel 1 \
+  #       --no-kv-offload (用RAM跑)
+
+    tty: true
+    stdin_open: true
+
+volumes:
+  llm_models:
